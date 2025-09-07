@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Opposite Baskets</title>
+		<style>
+			:root {
+				--bg: #0b0b10;
+				--fg: #e8e8f0;
+				--accent: #70f3ff;
+				--accent2: #5cff9a;
+				--danger: #ff5a5a;
+				--block: #9da3ad;
+				--grid: #1a1a24;
+				--sel: #ffd166;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+				font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans,
+					sans-serif;
+				background: radial-gradient(1000px 600px at 50% -20%, #151522 0%, var(--bg) 65%);
+				color: var(--fg);
+				user-select: none;
+			}
+			.wrap {
+				max-width: 980px;
+				margin: 20px auto;
+				padding: 12px;
+				display: grid;
+				grid-template-columns: 640px 1fr;
+				gap: 16px;
+				align-items: start;
+			}
+			canvas {
+				width: 640px;
+				height: 640px;
+				background: #0b0b10;
+				border: 1px solid #222533;
+				box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+				image-rendering: pixelated;
+				display: block;
+			}
+			.panel {
+				background: rgba(255, 255, 255, 0.04);
+				border: 1px solid rgba(255, 255, 255, 0.08);
+				border-radius: 12px;
+				padding: 12px 14px;
+			}
+			h1 {
+				margin: 0 0 8px;
+				font-size: 18px;
+				letter-spacing: 0.3px;
+			}
+			.stat {
+				font-size: 14px;
+				opacity: 0.9;
+				margin: 6px 0;
+			}
+			.kbd {
+				display: inline-block;
+				padding: 2px 6px;
+				border-radius: 6px;
+				border: 1px solid rgba(255, 255, 255, 0.15);
+				background: rgba(255, 255, 255, 0.06);
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+				font-size: 12px;
+			}
+			.msg {
+				margin-top: 8px;
+				min-height: 28px;
+				font-weight: 600;
+			}
+			.badge {
+				display: inline-block;
+				padding: 2px 8px;
+				border-radius: 999px;
+				font-size: 12px;
+				background: rgba(255, 255, 255, 0.06);
+				border: 1px solid rgba(255, 255, 255, 0.12);
+				margin-right: 6px;
+			}
+			.footer {
+				margin-top: 10px;
+				font-size: 12px;
+				opacity: 0.85;
+				line-height: 1.4;
+			}
+			.win {
+				color: var(--accent2);
+			}
+			.lose {
+				color: var(--danger);
+			}
+			.hint {
+				opacity: 0.9;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="wrap">
+			<canvas id="game" width="640" height="640"></canvas>
+			<div class="panel">
+				<h1>Opposite Baskets</h1>
+				<div class="stat">
+					<span class="badge">Level: <span id="levelNum">1</span>/3</span>
+					<span class="badge">Selected: <span id="selIdx">—</span></span>
+				</div>
+				<div class="stat">
+					Select a basket: <span class="kbd">Click</span> or <span class="kbd">Q</span>/<span
+						class="kbd"
+						>E</span
+					>. Move with arrows.
+				</div>
+				<div class="stat hint">
+					Selected basket moves with your input. Other baskets move in the
+					<b>opposite direction</b>. Robbers move in the <b>same direction</b> as selected.
+					<b>Baskets & Robbers wrap</b> at edges (blocked by walls).
+				</div>
+				<div id="message" class="msg"></div>
+				<div class="footer">
+					Win by getting <b>2+ baskets</b> into the <b>same container on the same move</b> (Combo),
+					or by delivering <b>all baskets</b> (they disappear).<br />
+					<b>Game Over</b> if any robber collides with any basket.
+				</div>
+			</div>
+		</div>
+
+		<script>
+			// ====== Config ======
+			const GRID = 64 // grid is 64x64 cells
+			const TILE = 10 // pixels per cell
+			const BASKET_SIZE = 2 // 2x2
+			const ROBBER_SIZE = 2 // 2x2
+			const BLOCK_SIZE = 2 // 2x2
+			const CONTAINER_SIZE = 4 // 4x4
+
+			const COLORS = {
+				grid: "#121420",
+				grid2: "#141628",
+				basket: "#70f3ff",
+				basketOther: "#59cfe0",
+				selected: "#ffd166",
+				robber: "#ff5a5a",
+				block: "#9da3ad",
+				container: "#5cff9a",
+				containerLine: "#2cd97a",
+			}
+
+			// ====== Level Data ======
+			const LEVELS = [
+				// Level 1: 2 baskets, 1 robber, NO blocks, one container bottom
+				{
+					baskets: [
+						{ x: 8, y: 8 },
+						{ x: 14, y: 10 },
+					],
+					robbers: [{ x: 28, y: 30 }],
+					blocks: [],
+					containers: [{ x: 48, y: 52 }],
+				},
+				// Level 2: harder, add blocks, 3 baskets, 2 robbers
+				{
+					baskets: [
+						{ x: 6, y: 6 },
+						{ x: 12, y: 18 },
+						{ x: 20, y: 10 },
+					],
+					robbers: [
+						{ x: 35, y: 28 },
+						{ x: 40, y: 16 },
+					],
+					blocks: [
+						{ x: 18, y: 8 },
+						{ x: 18, y: 10 },
+						{ x: 22, y: 18 },
+						{ x: 26, y: 22 },
+						{ x: 30, y: 26 },
+						{ x: 10, y: 24 },
+						{ x: 14, y: 28 },
+					],
+					containers: [{ x: 54, y: 54 }],
+				},
+				// Level 3: hardest, more blocks, 4 baskets, 3 robbers, containers top & bottom
+				{
+					baskets: [
+						{ x: 8, y: 40 },
+						{ x: 12, y: 14 },
+						{ x: 18, y: 20 },
+						{ x: 24, y: 10 },
+					],
+					robbers: [
+						{ x: 34, y: 14 },
+						{ x: 42, y: 30 },
+						{ x: 28, y: 40 },
+					],
+					blocks: [
+						{ x: 16, y: 16 },
+						{ x: 18, y: 16 },
+						{ x: 20, y: 16 },
+						{ x: 22, y: 16 },
+						{ x: 24, y: 16 },
+						{ x: 16, y: 18 },
+						{ x: 24, y: 18 },
+						{ x: 36, y: 20 },
+						{ x: 38, y: 22 },
+						{ x: 40, y: 24 },
+						{ x: 42, y: 26 },
+						{ x: 12, y: 34 },
+						{ x: 14, y: 34 },
+						{ x: 16, y: 34 },
+						{ x: 18, y: 34 },
+						{ x: 20, y: 34 },
+						{ x: 22, y: 34 },
+					],
+					containers: [
+						{ x: 4, y: 4 },
+						{ x: 52, y: 56 },
+					],
+				},
+			]
+
+			// ====== State ======
+			const canvas = document.getElementById("game")
+			const ctx = canvas.getContext("2d")
+			const messageEl = document.getElementById("message")
+			const levelNumEl = document.getElementById("levelNum")
+			const selIdxEl = document.getElementById("selIdx")
+
+			let levelIndex = 0
+			let baskets = []
+			let robbers = []
+			let blocks = []
+			let containers = []
+			let selected = null // index into baskets; must be selected to move
+			let frozen = false // when win/lose, freeze input briefly
+
+			function loadLevel(i) {
+				const L = LEVELS[i]
+				baskets = L.baskets.map((o) => ({ ...o }))
+				robbers = L.robbers.map((o) => ({ ...o }))
+				blocks = L.blocks.map((o) => ({ ...o }))
+				containers = L.containers.map((o) => ({ ...o }))
+				selected = null
+				frozen = false
+				levelNumEl.textContent = (i + 1).toString()
+				selIdxEl.textContent = "—"
+				message("")
+				draw()
+			}
+
+			// ====== Geometry / Collision ======
+			function rectsOverlap(a, aw, ah, b, bw, bh) {
+				return !(a.x + aw <= b.x || a.x >= b.x + bw || a.y + ah <= b.y || a.y >= b.y + bh)
+			}
+			function blockedByBlocks(next, size) {
+				for (const bl of blocks) {
+					if (rectsOverlap(next, size, size, bl, BLOCK_SIZE, BLOCK_SIZE)) return true
+				}
+				return false
+			}
+
+			// Toroidal wrapping helper: keep top-left within [0 .. GRID - size]
+			function wrapCoord(v, size) {
+				const maxTopLeft = GRID - size // inclusive
+				const m = maxTopLeft + 1 // range length
+				return ((v % m) + m) % m
+			}
+			function wrappedPos(ent, size, dx, dy) {
+				return { x: wrapCoord(ent.x + dx, size), y: wrapCoord(ent.y + dy, size) }
+			}
+
+			// ====== Rules ======
+			function moveWorld(dx, dy) {
+				if (selected === null || frozen) {
+					if (!frozen) message("Select a basket first (click it or press Q/E).")
+					return
+				}
+
+				// --- Move selected basket (wrap + blocks)
+				const sel = baskets[selected]
+				const selNext = wrappedPos(sel, BASKET_SIZE, dx, dy)
+				if (!blockedByBlocks(selNext, BASKET_SIZE)) {
+					sel.x = selNext.x
+					sel.y = selNext.y
+				}
+
+				// --- Move other baskets opposite (wrap + blocks)
+				baskets.forEach((b, idx) => {
+					if (idx === selected) return
+					const next = wrappedPos(b, BASKET_SIZE, -dx, -dy)
+					if (!blockedByBlocks(next, BASKET_SIZE)) {
+						b.x = next.x
+						b.y = next.y
+					}
+				})
+
+				// --- Move robbers same direction (NOW wrap + blocks)
+				robbers.forEach((r) => {
+					const next = wrappedPos(r, ROBBER_SIZE, dx, dy)
+					if (!blockedByBlocks(next, ROBBER_SIZE)) {
+						r.x = next.x
+						r.y = next.y
+					}
+				})
+
+				// ---- Delivery + Combo detection this move ----
+				const toRemoveIdx = new Set()
+				const comboCountPerContainer = new Map()
+				baskets.forEach((b, bi) => {
+					containers.forEach((c, ci) => {
+						if (rectsOverlap(b, BASKET_SIZE, BASKET_SIZE, c, CONTAINER_SIZE, CONTAINER_SIZE)) {
+							toRemoveIdx.add(bi)
+							comboCountPerContainer.set(ci, (comboCountPerContainer.get(ci) || 0) + 1)
+						}
+					})
+				})
+
+				let comboWin = false
+				for (const [, count] of comboCountPerContainer) {
+					if (count >= 2) {
+						comboWin = true
+						break
+					}
+				}
+
+				// Remove delivered baskets immediately (success)
+				if (toRemoveIdx.size > 0) {
+					baskets = baskets.filter((_, i) => !toRemoveIdx.has(i))
+					if (selected !== null) {
+						if (!baskets[selected]) selected = null
+					}
+				}
+
+				// ---- Loss / Win checks ----
+				if (checkGameOver()) {
+					frozen = true
+					message(
+						"<span class='lose'>Game Over!</span> (Press <span class='kbd'>R</span> to retry level)"
+					)
+				} else if (comboWin) {
+					frozen = true
+					if (levelIndex < LEVELS.length - 1) {
+						message(
+							"<span class='win'>Combo! Level cleared.</span> (Press <span class='kbd'>N</span> for next level)"
+						)
+					} else {
+						message(
+							"<span class='win'>Combo! You beat all levels 🎉</span> (Press <span class='kbd'>R</span> to replay)"
+						)
+					}
+				} else if (baskets.length === 0) {
+					frozen = true
+					if (levelIndex < LEVELS.length - 1) {
+						message(
+							"<span class='win'>All baskets delivered!</span> (Press <span class='kbd'>N</span> for next level)"
+						)
+					} else {
+						message(
+							"<span class='win'>All baskets delivered — you beat all levels 🎉</span> (Press <span class='kbd'>R</span> to replay)"
+						)
+					}
+				} else {
+					message("")
+				}
+
+				draw()
+			}
+
+			function checkGameOver() {
+				for (const r of robbers) {
+					for (const b of baskets) {
+						if (rectsOverlap(r, ROBBER_SIZE, ROBBER_SIZE, b, BASKET_SIZE, BASKET_SIZE)) {
+							return true
+						}
+					}
+				}
+				return false
+			}
+
+			// ====== UI ======
+			function message(html) {
+				messageEl.innerHTML = html
+			}
+
+			function drawGrid() {
+				ctx.fillStyle = "#0b0b10"
+				ctx.fillRect(0, 0, canvas.width, canvas.height)
+				ctx.strokeStyle = COLORS.grid
+				ctx.lineWidth = 1
+				ctx.beginPath()
+				for (let i = 0; i <= GRID; i++) {
+					const p = i * TILE + 0.5
+					ctx.moveTo(p, 0)
+					ctx.lineTo(p, GRID * TILE)
+					ctx.moveTo(0, p)
+					ctx.lineTo(GRID * TILE, p)
+				}
+				ctx.stroke()
+			}
+
+			function fillRectGrid(x, y, w, h, color) {
+				ctx.fillStyle = color
+				ctx.fillRect(x * TILE, y * TILE, w * TILE, h * TILE)
+			}
+			function strokeRectGrid(x, y, w, h, color) {
+				ctx.strokeStyle = color
+				ctx.lineWidth = 2
+				ctx.strokeRect(
+					Math.floor(x * TILE) + 1,
+					Math.floor(y * TILE) + 1,
+					w * TILE - 2,
+					h * TILE - 2
+				)
+			}
+
+			function draw() {
+				drawGrid()
+
+				// Containers
+				for (const c of containers) {
+					fillRectGrid(c.x, c.y, CONTAINER_SIZE, CONTAINER_SIZE, "rgba(92,255,154,0.18)")
+					strokeRectGrid(c.x, c.y, CONTAINER_SIZE, CONTAINER_SIZE, COLORS.containerLine)
+				}
+
+				// Blocks
+				for (const bl of blocks) {
+					fillRectGrid(bl.x, bl.y, BLOCK_SIZE, BLOCK_SIZE, COLORS.block)
+				}
+
+				// Robbers
+				for (const r of robbers) {
+					fillRectGrid(r.x, r.y, ROBBER_SIZE, ROBBER_SIZE, COLORS.robber)
+				}
+
+				// Baskets
+				baskets.forEach((b, idx) => {
+					const col =
+						idx === selected
+							? COLORS.selected
+							: selected === null
+							? COLORS.basket
+							: COLORS.basketOther
+					fillRectGrid(b.x, b.y, BASKET_SIZE, BASKET_SIZE, col)
+					if (idx === selected) {
+						strokeRectGrid(b.x, b.y, BASKET_SIZE, BASKET_SIZE, COLORS.selected)
+					}
+				})
+			}
+
+			// ====== Input ======
+			window.addEventListener("keydown", (e) => {
+				if (frozen) {
+					if (e.key === "r" || e.key === "R") {
+						loadLevel(levelIndex)
+					} else if ((e.key === "n" || e.key === "N") && levelIndex < LEVELS.length - 1) {
+						levelIndex++
+						loadLevel(levelIndex)
+					}
+					return
+				}
+
+				if (e.key === "q" || e.key === "Q") {
+					if (baskets.length) {
+						selected = selected === null ? 0 : (selected - 1 + baskets.length) % baskets.length
+						selIdxEl.textContent = selected
+						message("")
+						draw()
+					}
+				} else if (e.key === "e" || e.key === "E") {
+					if (baskets.length) {
+						selected = selected === null ? 0 : (selected + 1) % baskets.length
+						selIdxEl.textContent = selected
+						message("")
+						draw()
+					}
+				} else if (e.key === "ArrowLeft") {
+					moveWorld(-1, 0)
+				} else if (e.key === "ArrowRight") {
+					moveWorld(1, 0)
+				} else if (e.key === "ArrowUp") {
+					moveWorld(0, -1)
+				} else if (e.key === "ArrowDown") {
+					moveWorld(0, 1)
+				}
+			})
+
+			// Click to select basket
+			canvas.addEventListener("mousedown", (e) => {
+				if (frozen) return
+				const rect = canvas.getBoundingClientRect()
+				const x = Math.floor((e.clientX - rect.left) / TILE)
+				const y = Math.floor((e.clientY - rect.top) / TILE)
+				for (let i = 0; i < baskets.length; i++) {
+					const b = baskets[i]
+					if (x >= b.x && x < b.x + BASKET_SIZE && y >= b.y && y < b.y + BASKET_SIZE) {
+						selected = i
+						selIdxEl.textContent = selected
+						message("")
+						draw()
+						return
+					}
+				}
+			})
+
+			// ====== Start ======
+			function messageInit() {
+				message(
+					"Select a basket and use arrows. Baskets & robbers wrap at edges; delivered baskets disappear."
+				)
+			}
+			function init() {
+				loadLevel(levelIndex)
+				messageInit()
+			}
+			init()
+		</script>
+	</body>
+</html>
